@@ -1,0 +1,86 @@
+import sys
+sys.path.append("..")
+from parms import *
+hp = parms.hp
+TRAIN_NUMBER = len(os.listdir(hp.DIR + 'train'))
+TEST_NUMBER = len(os.listdir(hp.DIR + 'valid'))
+
+class Process_bbox:
+    def __init__(self, data):
+        self.data = data
+        lengths_train = [len(seq) for seq in data['train']]
+        lengths_test = [len(seq) for seq in data['test']]
+        self.lengths = {'train': lengths_train, 'test': lengths_test}
+        self.Nmax = max(max(self.lengths['train']), max(self.lengths['test'])) # 16
+        # pdb.set_trace()
+        self.seq_pad_bbox()
+        self.dynamic_bbox()
+        self.anchor_bbox()
+        # pdb.set_trace()
+        self.save()
+
+
+    def seq_pad_bbox(self):
+        Nb = self.data['train'][0].shape[1]
+
+        bbox_pad_train = []
+        bbox_mask_train = []
+        for seq, l in zip(self.data['train'], self.lengths['train']):
+            seq_pad = np.zeros([self.Nmax, Nb])
+            seq_pad[:l, :] = seq
+            bbox_pad_train.append(seq_pad)
+            seq_mask = np.zeros(self.Nmax)
+            seq_mask[:l] = 1
+            bbox_mask_train.append(seq_mask)
+
+        bbox_pad_test = []
+        bbox_mask_test = []
+        for seq, l in zip(self.data['test'], self.lengths['test']):
+            seq_pad = np.zeros([self.Nmax, Nb])
+            seq_pad[:l, :] = seq
+            bbox_pad_test.append(seq_pad)
+            seq_mask = np.zeros(self.Nmax)
+            seq_mask[:l] = 1
+            bbox_mask_test.append(seq_mask)   
+        
+        self.bbox_pad = {'train': np.array(bbox_pad_train), 'test': np.array(bbox_pad_test)}
+        self.bbox_mask = {'train': np.array(bbox_mask_train), 'test': np.array(bbox_mask_test)}
+        # pdb.set_trace()
+        assert self.bbox_pad['train'].shape == (500 * TRAIN_NUMBER * hp.AUG, hp.STROKE_NUMBER, 4)
+        assert self.bbox_mask['train'].shape == (500 * TRAIN_NUMBER * hp.AUG, hp.STROKE_NUMBER)
+        assert self.bbox_pad['test'].shape == (500 * TEST_NUMBER * hp.AUG, hp.STROKE_NUMBER, 4)
+        assert self.bbox_mask['test'].shape == (500 * TEST_NUMBER * hp.AUG, hp.STROKE_NUMBER)
+
+    def dynamic_bbox(self):
+        pre_bbox_train = np.full((500 * TRAIN_NUMBER * hp.AUG, 1, 2), hp.IMAGESIZE / 2)
+        bbox_xy_train = np.concatenate((pre_bbox_train, self.bbox_pad['train'][:, :, :2]), axis=1)
+        # pdb.set_trace()
+        bbox_dxdy_train = np.zeros((500 * TRAIN_NUMBER * hp.AUG, self.Nmax, 3))
+        m_trn = self.bbox_mask['train'].astype(np.int)
+        mask_trn = np.array([m_trn, m_trn])
+        mask_train = np.rollaxis(mask_trn, 0, 3)
+        bbox_dxdy_train[:, :, :2] = np.diff(bbox_xy_train, axis=1) * mask_train
+        bbox_dxdy_train[:, :, 2] = np.ones((500 * TRAIN_NUMBER * hp.AUG, self.Nmax)) - m_trn
+
+        pre_bbox_test = np.full((500 * TEST_NUMBER * hp.AUG, 1, 2), hp.IMAGESIZE / 2)
+        bbox_xy_test = np.concatenate((pre_bbox_test, self.bbox_pad['test'][:, :, :2]), axis=1)
+        bbox_dxdy_test = np.zeros((500 * TEST_NUMBER * hp.AUG, self.Nmax, 3))
+        m_tst = self.bbox_mask['test'].astype(np.int)
+        mask_tst = np.array([m_tst, m_tst])
+        mask_test = np.rollaxis(mask_tst, 0, 3)
+        bbox_dxdy_test[:, :, :2] = np.diff(bbox_xy_test, axis=1) * mask_test
+        bbox_dxdy_test[:, :, 2] = np.ones((500 * TEST_NUMBER * hp.AUG, self.Nmax)) - m_tst
+        
+        self.bbox_dxdy = {'train': bbox_dxdy_train, 'test': bbox_dxdy_test}
+
+    def anchor_bbox(self):
+        pdb.set_trace()
+        bbox_pad_train_all = (self.bbox_pad['train']).reshape(-1, 500, self.Nmax, 4)
+        bbox_anchor = np.mean(bbox_pad_train_all, axis=0)
+
+        self.bbox_anchor = bbox_anchor
+        assert self.bbox_anchor.shape == (500, hp.STROKE_NUMBER, 4)
+
+    def save(self):
+        with open(hp.DIR + hp.DATASETNAME + '_images_bbox.pkl', 'wb') as f:
+            pickle.dump((self.bbox_pad, self.bbox_mask, self.bbox_dxdy, self.bbox_anchor), f, pickle.HIGHEST_PROTOCOL)
