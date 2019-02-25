@@ -74,7 +74,7 @@ class Process_bbox:
         self.bbox_dxdy = {'train': bbox_dxdy_train, 'test': bbox_dxdy_test}
 
     def anchor_bbox(self):
-        pdb.set_trace()
+        #pdb.set_trace()
         bbox_pad_train_all = (self.bbox_pad['train']).reshape(-1, 500, self.Nmax, 4)
         bbox_anchor = np.mean(bbox_pad_train_all, axis=0)
 
